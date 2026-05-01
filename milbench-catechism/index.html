@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>MilBench Catechism</title>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#FAF6EE}
+textarea:focus{outline:none}
+button{font-family:inherit}
+::-webkit-scrollbar{width:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#d6d0c4;border-radius:3px}
+@keyframes pulse{0%,100%{opacity:.4}50%{opacity:1}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const{useState,useRef,useEffect}=React;
+
+const MODEL="claude-sonnet-4-20250514";
+
+const navy="#0f1824",red="#8C1515",cream="#FAF6EE",white="#FFFFFF",warm="#E6DFD1",mid="#5c5851",lt="#4a4640";
+const font="'EB Garamond',Georgia,'Times New Roman',serif";
+const mono="'IBM Plex Mono','Menlo',monospace";
+const SEV_COLORS={critical:"#9b2226",major:"#b45309",moderate:"#2563eb"};
+const SEV_LABELS={critical:"CRITICAL",major:"MAJOR",moderate:"MODERATE"};
+
+const TOPICS=[
+  {id:"centcom",label:"CENTCOM / Middle East",desc:"Iran operations, regional proxy networks, coalition campaigns, war termination",icon:"\u2736"},
+  {id:"indopacom",label:"INDOPACOM / China",desc:"Taiwan contingency, PLA modernization, first island chain, alliance posture",icon:"\u25C8"},
+  {id:"europe",label:"Europe / Russia",desc:"NATO posture, Russian reconstitution, nuclear risk, Baltic defense",icon:"\u25C6"},
+  {id:"whem",label:"Western Hemisphere",desc:"Hemispheric strategy, extraregional influence, partner engagement, Monroe Doctrine legacy",icon:"\u25CB"},
+  {id:"africom",label:"AFRICOM",desc:"Counter-influence, partner agency, extremism drivers, great power competition in Africa",icon:"\u25B3"},
+  {id:"leadership",label:"Strategic Leadership",desc:"Ethical failure, civil-military relations, organizational culture, command climate",icon:"\u25A0"},
+  {id:"modernization",label:"Defense Modernization",desc:"Capability gaps, acquisition timelines, industrial base, force structure",icon:"\u25AC"},
+  {id:"random",label:"Random",desc:"Surprise scenario drawn from any topic area",icon:"?"},
+];
+
+const GEN_PROMPT=`You are generating a military staff product for an educational assessment tool used at the US Army War College. 
+
+The student will receive this product and must interrogate the analyst who wrote it to find embedded flaws.
+
+TOPIC AREA: {{TOPIC}}
+
+Generate a complete scenario as a JSON object with this exact structure. Return ONLY valid JSON, no markdown, no backticks, no preamble.
+
+{
+  "title": "Short scenario title",
+  "type": "Document type (e.g., Theater Assessment, Campaign Critique, Policy Recommendation, Strategy Design, Operational Assessment, Leadership Analysis, Force Structure Assessment)",
+  "product": "The full staff product text, 500-700 words. Format it like a real military staff product with numbered sections (PURPOSE, BACKGROUND, ASSESSMENT with lettered subsections, RECOMMENDATION). Include a PREPARED BY line at the end. Write in formal military staff prose. The product must contain all 7 flaws listed below embedded naturally in the text.",
+  "flaws": [
+    {
+      "id": "short_snake_case_id",
+      "category": "Flaw Category Name",
+      "severity": "critical or major or moderate",
+      "description": "One-paragraph explanation of what the flaw is and why it matters.",
+      "hints": [
+        "Directional hint - points the student toward the right section or topic without revealing the flaw",
+        "Specific hint - narrows to the exact issue without fully explaining it",
+        "Full answer - states exactly what the flaw is"
+      ]
+    }
+  ]
+}
+
+FLAW REQUIREMENTS - embed exactly 7 flaws:
+- At least 2 must be CRITICAL severity: verifiable factual errors (fabricated citations, misattributed quotes, wrong institutional affiliations, nonexistent programs or reports, fabricated statistics with fake sources). These are things a student can verify are factually wrong.
+- At least 3 must be MAJOR severity: analytical judgment failures (anchoring bias, missing perspectives, unsupported assertions, instrument imbalance, escalation blindspots, ends-ways-means mismatch, conflation errors, missing root cause analysis).
+- At least 1 must be MODERATE severity: subtler issues (circular risk mitigation, technology determinism, oversimplified frameworks, selective evidence).
+- Make flaws diverse - do not repeat the same category twice.
+- Fabricated citations must sound real: use plausible author names, specific years, real-sounding publication venues, and precise-sounding statistics. They should be convincing enough that a student needs to actually check them.
+- Analytical flaws should be embedded naturally in the argument, not obviously wrong on first reading. The product should sound competent and professional.
+
+CRITICAL: The product must read like a real staff product. A student should be able to read it and think it's competent work until they start probing. Do not make the flaws obvious.`;
+
+function buildAnalystPrompt(flaws){
+  var critical=flaws.filter(function(f){return f.severity==="critical"});
+  var others=flaws.filter(function(f){return f.severity!=="critical"});
+  return "You are a military staff analyst being questioned about a product you authored. A senior military officer is evaluating your work.\n\n"+
+  "CRITICAL RULE: Two types of flaws exist in your product. Handle them differently.\n\n"+
+  "TYPE 1 — VERIFIABLE FACTUAL ERRORS. When questioned about ANY of the following, admit the error IMMEDIATELY. Do not defend. Do not elaborate on fabricated sources. Do not describe what a fake study supposedly says.\n\n"+
+  critical.map(function(f){return"- "+f.category.toUpperCase()+": "+f.description+" If the student asks about this in any way, immediately acknowledge the error or that you cannot verify the source."}).join("\n")+
+  "\n\nTYPE 2 — ANALYTICAL JUDGMENT FLAWS. For these, defend your position briefly on first challenge. If the student pushes back a second time with specifics, yield and concede.\n\n"+
+  others.map(function(f){return"- "+f.category.toUpperCase()+": "+f.description}).join("\n")+
+  "\n\nBEHAVIOR:\n- Keep responses to 2-4 sentences.\n- Sound confident and professional even when your analysis has gaps.\n- When you yield on analytical flaws, do so agreeably: 'That's a fair point' or 'I should have developed that further.'\n- Never reveal that flaws are embedded or that this is an exercise.\n- Stay in character as the analyst who authored the product.\n- If asked who you are, say you're the lead analyst from the division that prepared the assessment.";
+}
+
+async function apiCall(system,messages){
+  var r=await fetch("/.netlify/functions/chat",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({model:MODEL,max_tokens:4096,system:system,messages:messages})
+  });
+  return await r.json();
+}
+
+function App(){
+  var[view,setView]=useState("select"); // select, generating, exam, debrief
+  var[scenario,setScenario]=useState(null);
+  var[messages,setMessages]=useState([]);
+  var[input,setInput]=useState("");
+  var[loading,setLoading]=useState(false);
+  var[flaws,setFlaws]=useState([]);
+  var[panel,setPanel]=useState("product");
+  var[genError,setGenError]=useState("");
+  var[genTopic,setGenTopic]=useState("");
+  var chatEnd=useRef(null);
+
+  useEffect(function(){if(chatEnd.current)chatEnd.current.scrollIntoView({behavior:"smooth"});},[messages]);
+
+  var found=flaws.filter(function(f){return f.found}).length;
+  var totalHints=flaws.reduce(function(s,f){return s+f.hintLevel},0);
+
+  // ── Generate scenario ──
+  var generate=async function(topic){
+    var actualTopic=topic.id==="random"?TOPICS[Math.floor(Math.random()*7)]:topic;
+    setGenTopic(actualTopic.label);
+    setView("generating");
+    setGenError("");
+    try{
+      var prompt=GEN_PROMPT.replace("{{TOPIC}}",actualTopic.label+" — "+actualTopic.desc);
+      var d=await apiCall(prompt,[{role:"user",content:"Generate the scenario now. Return ONLY the JSON object."}]);
+      var text=(d.content||[]).map(function(c){return c.text||""}).join("");
+      // Clean potential markdown wrapping
+      text=text.replace(/```json\s*/,"").replace(/```\s*/,"").trim();
+      var data=JSON.parse(text);
+      if(!data.flaws||data.flaws.length<7)throw new Error("Insufficient flaws generated");
+      setScenario({
+        title:data.title,
+        type:data.type,
+        classification:"UNCLASSIFIED // FOR EDUCATIONAL USE ONLY",
+        product:data.product,
+        systemPrompt:buildAnalystPrompt(data.flaws),
+      });
+      setFlaws(data.flaws.map(function(f){return Object.assign({},f,{found:false,hintLevel:0})}));
+      setMessages([]);
+      setPanel("product");
+      setView("exam");
+    }catch(e){
+      console.error(e);
+      setGenError("Generation failed: "+e.message+". Try again.");
+      setView("select");
+    }
+  };
+
+  var revealHint=function(flawId){
+    setFlaws(function(p){return p.map(function(f){
+      if(f.id===flawId&&f.hintLevel<3)return Object.assign({},f,{hintLevel:f.hintLevel+1});
+      return f;
+    })});
+  };
+
+  var send=async function(){
+    if(!input.trim()||loading)return;
+    var msg=input.trim();setInput("");
+    var next=messages.concat([{role:"user",content:msg}]);
+    setMessages(next);setLoading(true);
+    try{
+      var d=await apiCall(
+        scenario.systemPrompt+"\n\nFLAW TRACKING (hidden from student): After your in-character response, on a new line write FLAW_CHECK: followed by a JSON array of flaw IDs from this list that the student's MOST RECENT message meaningfully identified or probed: "+JSON.stringify(flaws.map(function(f){return{id:f.id,d:f.description}}))+". Only include if substantively addressed. If none: FLAW_CHECK: []",
+        next.map(function(m){return{role:m.role==="user"?"user":"assistant",content:m.content}})
+      );
+      var reply=(d.content||[]).map(function(c){return c.text||""}).join("")||"Could you rephrase that?";
+      var match=reply.match(/FLAW_CHECK:\s*(\[.*?\])/s);
+      if(match){
+        try{JSON.parse(match[1]).forEach(function(id){setFlaws(function(p){return p.map(function(f){return f.id===id?Object.assign({},f,{found:true}):f})})});}catch(e){}
+        reply=reply.replace(/\n*FLAW_CHECK:[\s\S]*$/,"").trim();
+      }
+      setMessages(next.concat([{role:"assistant",content:reply}]));
+    }catch(e){setMessages(next.concat([{role:"assistant",content:"Connection error. Try again."}]));}
+    setLoading(false);
+  };
+
+  var onKey=function(e){if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}};
+
+  // ── Helpers ──
+  var renderSevBoxes=function(){
+    return React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:26}},
+      ["critical","major","moderate"].map(function(sev){
+        var fc=flaws.filter(function(x){return x.found&&x.severity===sev}).length;
+        var tc=flaws.filter(function(x){return x.severity===sev}).length;
+        return React.createElement("div",{key:sev,style:{background:white,border:"1px solid "+(fc===tc&&tc>0?SEV_COLORS[sev]:warm),padding:"16px 12px",textAlign:"center",boxShadow:"0 1px 3px rgba(0,0,0,0.03)"}},
+          React.createElement("div",{style:{fontFamily:mono,fontSize:10,color:SEV_COLORS[sev],letterSpacing:1.5,marginBottom:6,textTransform:"uppercase",fontWeight:500}},SEV_LABELS[sev]),
+          React.createElement("div",{style:{fontSize:28,fontWeight:600,color:fc>0?navy:warm}},fc+"/"+tc)
+        );
+      })
+    );
+  };
+
+  var renderFlawCard=function(f,showAll){
+    var visible=showAll||f.found||f.hintLevel>0;
+    var showDesc=showAll||f.found;
+    return React.createElement("div",{key:f.id,style:{
+      background:f.found?white:showAll?"#fefcf7":"transparent",
+      border:"1px solid "+(f.found?SEV_COLORS[f.severity]:warm),
+      padding:"14px 18px",marginBottom:10,
+      borderLeft:"3px solid "+(f.found?SEV_COLORS[f.severity]:showAll?SEV_COLORS[f.severity]:warm),
+      opacity:visible?1:0.25,boxShadow:f.found?"0 1px 4px rgba(0,0,0,0.04)":"none"
+    }},
+      React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}},
+        React.createElement("span",{style:{fontFamily:mono,fontSize:10,color:SEV_COLORS[f.severity],letterSpacing:1.5,fontWeight:500,textTransform:"uppercase"}},SEV_LABELS[f.severity]+"  \u00B7  "+f.category),
+        React.createElement("span",{style:{fontFamily:mono,fontSize:10,color:f.found?"#2d6a2e":mid,fontWeight:500}},
+          f.found?"\u2713 Identified"+(f.hintLevel>0?" ("+f.hintLevel+" hint"+(f.hintLevel>1?"s":"")+")":""):showAll?"\u2717 Missed":"\u2014")
+      ),
+      showDesc&&React.createElement("p",{style:{fontSize:15.5,color:lt,margin:0,lineHeight:1.65}},f.description),
+      // Hint button (exam only)
+      !showAll&&!f.found&&f.hintLevel<3&&React.createElement("div",{style:{marginTop:10}},
+        React.createElement("button",{
+          onClick:function(){revealHint(f.id)},
+          style:{background:"none",border:"1px solid "+warm,color:mid,padding:"5px 14px",cursor:"pointer",fontSize:11,fontFamily:mono,letterSpacing:.5},
+          onMouseEnter:function(e){e.currentTarget.style.borderColor=red;e.currentTarget.style.color=red},
+          onMouseLeave:function(e){e.currentTarget.style.borderColor=warm;e.currentTarget.style.color=mid},
+        },f.hintLevel===0?"Get a hint":f.hintLevel===1?"More specific hint":"Reveal answer")
+      ),
+      // Revealed hints (exam)
+      !showAll&&f.hintLevel>0&&!f.found&&React.createElement("div",{style:{marginTop:10}},
+        Array.from({length:f.hintLevel}).map(function(_,i){
+          return React.createElement("div",{key:i,style:{background:"#f7f4ec",border:"1px solid "+warm,padding:"8px 12px",marginTop:i>0?6:0,fontSize:14.5,color:navy,lineHeight:1.6,fontStyle:"italic"}},
+            React.createElement("span",{style:{fontFamily:mono,fontSize:10,color:i===2?red:mid,letterSpacing:1,marginRight:8,fontStyle:"normal",fontWeight:500}},i===0?"HINT 1":i===1?"HINT 2":"ANSWER"),
+            f.hints[i])
+        })
+      ),
+      // All hints (debrief, missed flaws)
+      showAll&&!f.found&&f.hints&&React.createElement("div",{style:{marginTop:10}},
+        f.hints.map(function(h,i){
+          return React.createElement("div",{key:i,style:{background:"#f7f4ec",border:"1px solid "+warm,padding:"8px 12px",marginTop:i>0?6:0,fontSize:14.5,color:navy,lineHeight:1.6,fontStyle:"italic"}},
+            React.createElement("span",{style:{fontFamily:mono,fontSize:10,color:i===2?red:mid,letterSpacing:1,marginRight:8,fontStyle:"normal",fontWeight:500}},i===0?"HINT 1":i===1?"HINT 2":"ANSWER"),
+            h)
+        })
+      )
+    );
+  };
+
+  // ══════════════════════════════════
+  // SELECT
+  // ══════════════════════════════════
+  if(view==="select")return(
+    React.createElement("div",{style:{minHeight:"100vh",background:cream,fontFamily:font,color:navy}},
+      React.createElement("div",{style:{maxWidth:740,margin:"0 auto",padding:"80px 32px 60px"}},
+        React.createElement("div",{style:{fontFamily:mono,fontSize:12,letterSpacing:3.5,color:mid,textTransform:"uppercase",marginBottom:24}},"Center for Strategic Leadership"),
+        React.createElement("h1",{style:{fontSize:56,fontWeight:400,color:navy,margin:"0 0 4px",lineHeight:1.05,letterSpacing:-1,fontStyle:"italic"}},"MilBench Catechism"),
+        React.createElement("div",{style:{width:56,height:3,background:red,margin:"24px 0 16px"}}),
+        React.createElement("p",{style:{fontSize:22,color:mid,margin:"0 0 28px",fontStyle:"italic",letterSpacing:.3}},"Master the Art of the Question"),
+        React.createElement("p",{style:{fontSize:20,color:navy,lineHeight:1.7,maxWidth:560,margin:"0 0 48px"}},
+          "You are the examiner. Interrogate AI-generated assessments and staff products. Find the unsupported assertions, the fabricated references, the missing perspectives, and the analysis that sounds right but isn\u2019t."
+        ),
+        React.createElement("div",{style:{background:white,border:"1px solid "+warm,padding:"30px 34px",marginBottom:52,lineHeight:1.75,fontSize:18,boxShadow:"0 1px 4px rgba(0,0,0,0.04)"}},
+          React.createElement("div",{style:{fontFamily:mono,fontSize:12,color:red,letterSpacing:3,marginBottom:16,textTransform:"uppercase",fontWeight:500}},"How It Works"),
+          React.createElement("p",{style:{margin:"0 0 12px"}},"Select a topic area below. The system generates a unique staff product with embedded analytical flaws \u2014 different every time. Your job is to question the analyst who wrote it."),
+          React.createElement("p",{style:{margin:"0 0 12px"}},"If you get stuck, the scorecard offers tiered hints \u2014 from directional nudges to specific answers. Hint usage is tracked. When you\u2019re done, end the examination to see the full debrief with every flaw revealed."),
+          React.createElement("p",{style:{margin:0,color:lt,fontStyle:"italic",fontSize:17}},"Every scenario is generated fresh. No two sessions are identical.")
+        ),
+        genError&&React.createElement("div",{style:{background:"#fdf2f2",border:"1px solid #deb8b8",padding:"14px 20px",marginBottom:20,color:red,fontSize:15}},genError),
+        React.createElement("div",{style:{fontFamily:mono,fontSize:12,color:red,letterSpacing:3,marginBottom:18,textTransform:"uppercase",fontWeight:500}},"Select Topic Area"),
+
+        // ── Geographic topics ──
+        React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}},
+          [{t:TOPICS[0],region:"Middle East & Central Asia"},{t:TOPICS[1],region:"China, Taiwan & the Pacific"},{t:TOPICS[2],region:"NATO, Russia & the Baltic"},{t:TOPICS[3],region:"Latin America & the Caribbean"}].map(function(item){
+            return React.createElement("button",{
+              key:item.t.id,onClick:function(){generate(item.t)},
+              style:{textAlign:"left",fontFamily:font,background:white,border:"1px solid "+warm,padding:"22px 26px",cursor:"pointer",boxShadow:"0 1px 3px rgba(0,0,0,0.03)",transition:"border-color 0.15s"},
+              onMouseEnter:function(e){e.currentTarget.style.borderColor=red},
+              onMouseLeave:function(e){e.currentTarget.style.borderColor=warm},
+            },
+              React.createElement("div",{style:{fontFamily:mono,fontSize:11,fontWeight:500,color:red,letterSpacing:2,textTransform:"uppercase",marginBottom:6}},item.t.label),
+              React.createElement("div",{style:{fontSize:16,color:navy,lineHeight:1.5}},item.region)
+            );
+          })
+        ),
+        // AFRICOM full width
+        React.createElement("button",{
+          onClick:function(){generate(TOPICS[4])},
+          style:{display:"block",width:"100%",textAlign:"left",fontFamily:font,background:white,border:"1px solid "+warm,padding:"22px 26px",marginBottom:24,cursor:"pointer",boxShadow:"0 1px 3px rgba(0,0,0,0.03)",transition:"border-color 0.15s"},
+          onMouseEnter:function(e){e.currentTarget.style.borderColor=red},
+          onMouseLeave:function(e){e.currentTarget.style.borderColor=warm},
+        },
+          React.createElement("div",{style:{fontFamily:mono,fontSize:11,fontWeight:500,color:red,letterSpacing:2,textTransform:"uppercase",marginBottom:6}},"AFRICOM"),
+          React.createElement("div",{style:{fontSize:16,color:navy,lineHeight:1.5}},"Counter-influence, partner agency & great power competition in Africa")
+        ),
+
+        // ── Non-geographic topics ──
+        React.createElement("div",{style:{fontFamily:mono,fontSize:11,color:mid,letterSpacing:2,marginBottom:14,textTransform:"uppercase",fontWeight:500}},"Institutional Topics"),
+        React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:0}},
+          [
+            {t:TOPICS[5],sub:"Ethical failure, civil-military trust & organizational culture"},
+            {t:TOPICS[6],sub:"Capability gaps, acquisition, industrial base & force structure"},
+            {t:TOPICS[7],sub:"Surprise scenario from any topic area"},
+          ].map(function(item){
+            return React.createElement("button",{
+              key:item.t.id,onClick:function(){generate(item.t)},
+              style:{textAlign:"center",fontFamily:font,background:white,border:"1px solid "+warm,padding:"22px 18px",cursor:"pointer",boxShadow:"0 1px 3px rgba(0,0,0,0.03)",transition:"border-color 0.15s"},
+              onMouseEnter:function(e){e.currentTarget.style.borderColor=red},
+              onMouseLeave:function(e){e.currentTarget.style.borderColor=warm},
+            },
+              React.createElement("div",{style:{fontFamily:mono,fontSize:11,fontWeight:500,color:item.t.id==="random"?red:navy,letterSpacing:1.5,textTransform:"uppercase",marginBottom:8}},item.t.label),
+              React.createElement("div",{style:{fontSize:14,color:mid,lineHeight:1.5}},item.sub)
+            );
+          })
+        ),
+        React.createElement("div",{style:{marginTop:52,paddingTop:20,borderTop:"1px solid "+warm,fontFamily:mono,fontSize:9.5,color:mid,letterSpacing:1.5}},
+          "US ARMY WAR COLLEGE  \u00B7  MILBENCH CATECHISM  \u00B7  BOYCE, NAGL, WHEATON")
+      )
+    )
+  );
+
+  // ══════════════════════════════════
+  // GENERATING
+  // ══════════════════════════════════
+  if(view==="generating")return(
+    React.createElement("div",{style:{minHeight:"100vh",background:cream,fontFamily:font,color:navy,display:"flex",alignItems:"center",justifyContent:"center"}},
+      React.createElement("div",{style:{textAlign:"center",maxWidth:400}},
+        React.createElement("div",{style:{fontSize:40,color:warm,marginBottom:32,animation:"pulse 2s ease-in-out infinite"}},"\u25C8"),
+        React.createElement("h2",{style:{fontSize:28,fontWeight:400,fontStyle:"italic",color:navy,marginBottom:12}},"Generating Scenario"),
+        React.createElement("p",{style:{fontSize:17,color:mid,lineHeight:1.6,marginBottom:8}},"Building a fresh staff product for "+genTopic+" with embedded analytical flaws."),
+        React.createElement("p",{style:{fontFamily:mono,fontSize:11,color:warm,letterSpacing:1}},"This takes about 15 seconds.")
+      )
+    )
+  );
+
+  // ══════════════════════════════════
+  // DEBRIEF
+  // ══════════════════════════════════
+  if(view==="debrief")return(
+    React.createElement("div",{style:{minHeight:"100vh",background:cream,fontFamily:font,color:navy}},
+      React.createElement("div",{style:{maxWidth:740,margin:"0 auto",padding:"60px 32px"}},
+        React.createElement("div",{style:{fontFamily:mono,fontSize:12,color:red,letterSpacing:3,textTransform:"uppercase",marginBottom:20,fontWeight:500}},"Examination Complete"),
+        React.createElement("h2",{style:{fontSize:36,fontWeight:400,color:navy,fontStyle:"italic",margin:"0 0 8px"}},scenario.title+" \u2014 Debrief"),
+        React.createElement("div",{style:{width:40,height:3,background:red,margin:"20px 0 32px"}}),
+        React.createElement("div",{style:{background:white,border:"1px solid "+warm,padding:"28px 32px",marginBottom:32,boxShadow:"0 1px 4px rgba(0,0,0,0.04)"}},
+          React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:20,marginBottom:20}},
+            [{n:found+"/"+flaws.length,l:"Flaws Identified",c:navy},{n:totalHints,l:"Hints Used",c:totalHints>0?"#b45309":navy},{n:messages.filter(function(m){return m.role==="user"}).length,l:"Questions Asked",c:navy}].map(function(s,i){
+              return React.createElement("div",{key:i,style:{textAlign:"center"}},
+                React.createElement("div",{style:{fontSize:36,fontWeight:600,color:s.c}},s.n),
+                React.createElement("div",{style:{fontFamily:mono,fontSize:10,color:mid,letterSpacing:1.5,marginTop:4,textTransform:"uppercase"}},s.l)
+              );
+            })
+          ),
+          renderSevBoxes()
+        ),
+        React.createElement("div",{style:{fontFamily:mono,fontSize:12,color:red,letterSpacing:3,marginBottom:16,textTransform:"uppercase",fontWeight:500}},"All Embedded Flaws"),
+        flaws.map(function(f){return renderFlawCard(f,true)}),
+        React.createElement("div",{style:{display:"flex",gap:12,marginTop:32}},
+          React.createElement("button",{onClick:function(){setView("exam")},
+            style:{background:"none",border:"1px solid "+warm,color:mid,padding:"10px 24px",cursor:"pointer",fontSize:15,fontFamily:font},
+            onMouseEnter:function(e){e.currentTarget.style.borderColor=red},
+            onMouseLeave:function(e){e.currentTarget.style.borderColor=warm},
+          },"Review Conversation"),
+          React.createElement("button",{onClick:function(){setView("select")},
+            style:{background:red,border:"none",color:white,padding:"10px 24px",cursor:"pointer",fontSize:15,fontFamily:font}
+          },"New Scenario")
+        ),
+        React.createElement("div",{style:{marginTop:52,paddingTop:20,borderTop:"1px solid "+warm,fontFamily:mono,fontSize:9.5,color:mid,letterSpacing:1.5}},
+          "US ARMY WAR COLLEGE  \u00B7  MILBENCH CATECHISM  \u00B7  BOYCE, NAGL, WHEATON")
+      )
+    )
+  );
+
+  // ══════════════════════════════════
+  // EXAM
+  // ══════════════════════════════════
+  return(
+    React.createElement("div",{style:{height:"100vh",display:"flex",flexDirection:"column",background:cream,fontFamily:font,color:navy}},
+      // Top bar
+      React.createElement("div",{style:{background:white,borderBottom:"1px solid "+warm,padding:"10px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}},
+        React.createElement("div",{style:{display:"flex",alignItems:"center",gap:14}},
+          React.createElement("button",{onClick:function(){setView("select")},style:{background:"none",border:"1px solid "+warm,color:mid,padding:"5px 14px",cursor:"pointer",fontSize:12,fontFamily:mono}},"\u2190 Back"),
+          React.createElement("span",{style:{fontFamily:mono,fontSize:11,color:red,letterSpacing:2.5,fontWeight:500,textTransform:"uppercase"}},"MilBench Catechism"),
+          React.createElement("span",{style:{color:warm}},"|"),
+          React.createElement("span",{style:{fontSize:17,fontStyle:"italic",color:navy}},scenario&&scenario.title)
+        ),
+        React.createElement("div",{style:{display:"flex",alignItems:"center",gap:12}},
+          React.createElement("span",{style:{fontFamily:mono,fontSize:12,fontWeight:500,color:found>0?red:mid,background:found>0?"#fdf2f2":"#f3f0e8",padding:"4px 12px",border:"1px solid "+(found>0?"#deb8b8":warm)}},found+"/"+flaws.length+" identified"),
+          totalHints>0&&React.createElement("span",{style:{fontFamily:mono,fontSize:12,color:"#b45309",background:"#fef9ee",padding:"4px 10px",border:"1px solid #e8d5a8"}},totalHints+" hint"+(totalHints>1?"s":"")),
+          React.createElement("button",{
+            onClick:function(){setView("debrief")},
+            style:{background:"none",border:"1px solid "+warm,color:mid,padding:"5px 14px",cursor:"pointer",fontSize:12,fontFamily:mono,fontWeight:500},
+            onMouseEnter:function(e){e.currentTarget.style.borderColor=red;e.currentTarget.style.color=red},
+            onMouseLeave:function(e){e.currentTarget.style.borderColor=warm;e.currentTarget.style.color=mid},
+          },"End Exam")
+        )
+      ),
+
+      // Body
+      React.createElement("div",{style:{display:"flex",flex:1,overflow:"hidden"}},
+        // Left
+        React.createElement("div",{style:{width:440,borderRight:"1px solid "+warm,display:"flex",flexDirection:"column",flexShrink:0,background:white}},
+          React.createElement("div",{style:{display:"flex",borderBottom:"1px solid "+warm,flexShrink:0}},
+            ["product","scorecard"].map(function(t){
+              return React.createElement("button",{key:t,onClick:function(){setPanel(t)},
+                style:{flex:1,padding:"11px 0",border:"none",cursor:"pointer",fontFamily:mono,fontSize:11,letterSpacing:2,textTransform:"uppercase",fontWeight:500,background:panel===t?cream:white,color:panel===t?red:mid,borderBottom:panel===t?"2px solid "+red:"2px solid transparent"}
+              },t==="scorecard"?"Scorecard"+(found>0?" ("+found+")":""):"Product");
+            })
+          ),
+          panel==="product"&&React.createElement("div",{style:{flex:1,overflow:"auto",padding:"22px 30px",background:cream}},
+            React.createElement("div",{style:{fontFamily:mono,fontSize:10,color:mid,letterSpacing:1.5,marginBottom:18,textTransform:"uppercase"}},scenario&&scenario.classification),
+            React.createElement("div",{style:{whiteSpace:"pre-wrap",fontSize:16.5,lineHeight:1.78,color:navy}},scenario&&scenario.product)
+          ),
+          panel==="scorecard"&&React.createElement("div",{style:{flex:1,overflow:"auto",padding:"22px 26px",background:cream}},
+            renderSevBoxes(),
+            flaws.map(function(f){return renderFlawCard(f,false)})
+          )
+        ),
+
+        // Right — Chat
+        React.createElement("div",{style:{flex:1,display:"flex",flexDirection:"column",background:cream}},
+          React.createElement("div",{style:{flex:1,overflow:"auto",padding:"28px 36px"}},
+            messages.length===0&&React.createElement("div",{style:{textAlign:"center",padding:"120px 48px 60px",color:mid}},
+              React.createElement("p",{style:{fontSize:22,lineHeight:1.75,maxWidth:440,margin:"0 auto",fontStyle:"italic",color:navy}},"The staff product is on the left. Read it carefully, then begin your interrogation."),
+              React.createElement("div",{style:{fontFamily:mono,fontSize:12,color:mid,marginTop:28,letterSpacing:2.5}},"CHALLENGE  \u00B7  DEMAND EVIDENCE  \u00B7  TEST THE ANALYSIS")
+            ),
+            messages.map(function(m,i){
+              return React.createElement("div",{key:i,style:{marginBottom:22,display:"flex",flexDirection:"column",alignItems:m.role==="user"?"flex-end":"flex-start"}},
+                React.createElement("div",{style:{fontFamily:mono,fontSize:10,color:m.role==="user"?red:mid,letterSpacing:2.5,marginBottom:6,textTransform:"uppercase",fontWeight:500}},m.role==="user"?"Examiner":"Analyst"),
+                React.createElement("div",{style:{maxWidth:"78%",background:white,border:"1px solid "+(m.role==="user"?warm:"#e0dbd0"),borderLeft:m.role==="assistant"?"3px solid "+mid:"1px solid "+warm,padding:"14px 20px",fontSize:17,lineHeight:1.75,color:navy,boxShadow:"0 1px 3px rgba(0,0,0,0.03)"}},m.content)
+              );
+            }),
+            loading&&React.createElement("div",{style:{fontFamily:mono,fontSize:12,color:mid,padding:"8px 0",fontStyle:"italic"}},"Analyst is composing a response\u2026"),
+            React.createElement("div",{ref:chatEnd})
+          ),
+          React.createElement("div",{style:{borderTop:"1px solid "+warm,padding:"16px 32px 18px",background:white,flexShrink:0}},
+            React.createElement("div",{style:{display:"flex",gap:10}},
+              React.createElement("textarea",{
+                value:input,onChange:function(e){setInput(e.target.value)},onKeyDown:onKey,
+                placeholder:"Question the analyst\u2026",rows:2,
+                style:{flex:1,background:"#f7f4ec",border:"1px solid "+warm,color:navy,padding:"13px 18px",fontSize:17,fontFamily:font,resize:"none",outline:"none",lineHeight:1.6},
+                onFocus:function(e){e.target.style.borderColor=red},
+                onBlur:function(e){e.target.style.borderColor=warm},
+              }),
+              React.createElement("button",{onClick:send,disabled:loading||!input.trim(),
+                style:{background:input.trim()?red:warm,border:"none",color:input.trim()?white:mid,padding:"0 26px",cursor:input.trim()?"pointer":"default",fontFamily:mono,fontSize:12,letterSpacing:1,fontWeight:500}
+              },"Send")
+            ),
+            React.createElement("div",{style:{fontFamily:mono,fontSize:10,color:mid,marginTop:7,textAlign:"right",letterSpacing:.5}},"Enter to send \u00B7 Shift+Enter for new line")
+          )
+        )
+      )
+    )
+  );
+}
+
+ReactDOM.render(React.createElement(App),document.getElementById("root"));
+</script>
+</body>
+</html>
