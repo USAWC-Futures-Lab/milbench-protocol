@@ -16,6 +16,8 @@ This repository provides everything a professional military education institutio
 milbench-protocol/
 ├── README.md                  # This file — overview, purpose, citation
 ├── protocol.md                # Step-by-step replication guide
+├── catechism/
+│   └── index.html             # MilBench Catechism — AI interrogation training tool
 ├── prompts/
 │   └── exam-prompt.md         # Standardized prompt and script for AI examinees
 ├── rubric/
@@ -98,6 +100,20 @@ Full analysis is in the published paper.
 
 ---
 
+## MilBench Catechism — Master the Art of the Question
+
+MilBench established that commercial AI systems can pass the War College capstone assessment. Catechism trains the skill that matters next: evaluating whether AI-generated analysis is trustworthy.
+
+Students receive an AI-generated staff product — a theater assessment, campaign critique, or policy recommendation — containing embedded analytical flaws: fabricated references, unsupported assertions, anchoring bias, missing perspectives, and doctrinal errors. Their job is to interrogate the analyst who wrote it, find what's wrong, and push back until the analysis breaks.
+
+The AI analyst behaves the way MilBench models did: defends initially, yields under pressure, avoids naming adversaries until pressed. Every scenario is generated fresh — no two sessions are identical.
+
+**[Try it live →](https://usawc-milbench-catechism.netlify.app/)**
+
+To self-host, download [`catechism/index.html`](catechism/index.html) and open it in a browser. You will need your own [Anthropic API key](https://console.anthropic.com/).
+
+---
+
 ## Citation
 
 If you use MilBench in your research or institutional assessment, cite the original study:
@@ -106,7 +122,7 @@ If you use MilBench in your research or institutional assessment, cite the origi
 
 If you use the protocol materials from this repository:
 
-> MilBench Protocol v1.0. Center for Strategic Leadership, US Army War College, 2026. https://github.com/[TBD]/milbench-protocol
+> MilBench Protocol v1.0. Center for Strategic Leadership, US Army War College, 2026. https://github.com/USAWC-Futures-Lab/milbench-protocol
 
 ---
 
@@ -118,13 +134,13 @@ MilBench improves through replication. If your institution runs a MilBench itera
 - Report aggregate results for cross-institutional comparison.
 - Submit issues or pull requests to improve the protocol documentation.
 
-Contact: Kevin M. Boyce, Center for Strategic Leadership, US Army War College — [email TBD]
+Contact: Kevin M. Boyce, Center for Strategic Leadership, US Army War College
 
 ---
 
 ## License
 
-[TBD — recommend Creative Commons Attribution 4.0 (CC BY 4.0) for the protocol documents and MIT for any code in the scoring directory.]
+CC0-1.0 for the protocol documents. MIT for code in the scoring directory and catechism tool.
 
 ---
 
